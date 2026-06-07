@@ -1,0 +1,15 @@
+# Generated catalog cache — indirectly reveals which games a user owns; regenerated at runtime
+cache/
+
+# Scratch pipeline output
+shortlist.json
+recs.json
+*.out.json
+
+# Secrets / environment
+.env
+.env.local
+
+# Deps / build / logs
+node_modules/
+*.log
