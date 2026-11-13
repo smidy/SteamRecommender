@@ -10,7 +10,7 @@
  * abandoned series (ISC-15). Output is a ~25-game shortlist for the Explain stage to finalize.
  *
  * Usage:
- *   STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--summary]
+ *   STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--no-recency] [--summary]
  *
  * @author PAI System — SteamRecommender
  * @version 0.1.0
@@ -102,7 +102,7 @@ function printSummary(persona: string, ranked: Ranked[]) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  if (argv.includes("--help") || argv.length === 0) { console.log("Usage: STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--summary]"); return; }
+  if (argv.includes("--help") || argv.length === 0) { console.log("Usage: STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--no-recency] [--summary]"); return; }
   const summary = argv.includes("--summary");
   const deckOnly = argv.includes("--deck-only");
   const nArg = argv.indexOf("--n"); const n = nArg !== -1 ? parseInt(argv[nArg + 1], 10) : DEFAULT_N;
@@ -120,7 +120,7 @@ async function main() {
 
   const playedAppids = owned.games.filter((g) => g.playtime_forever > 0).map((g) => g.appid);
   const { meta } = await getCatalog(playedAppids, { fetchMissing: true });
-  const profile = buildProfile({ steamid, persona: profileMeta?.persona, games: owned.games, recent, catalog: meta });
+  const profile = buildProfile({ steamid, persona: profileMeta?.persona, games: owned.games, recent, catalog: meta, recency: !argv.includes("--no-recency") });
 
   process.stderr.write(`${C.cyan}retrieving candidates…${C.reset}\n`);
   const { candidates } = await retrieveCandidates(steamid, key, { pages });

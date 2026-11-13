@@ -35,7 +35,7 @@ const C = {
   yellow: "\x1b[33m", cyan: "\x1b[36m", bold: "\x1b[1m",
 };
 
-export interface Game { appid: number; name: string; playtime_forever: number; playtime_2weeks: number; }
+export interface Game { appid: number; name: string; playtime_forever: number; playtime_2weeks: number; rtime_last_played?: number; }
 export interface Library {
   status: "ok" | "private" | "error";
   steamid: string;
@@ -101,6 +101,7 @@ export async function getOwnedGames(steamid: string, key: string): Promise<{ gam
     name: g.name ?? `app/${g.appid}`,
     playtime_forever: g.playtime_forever ?? 0,
     playtime_2weeks: g.playtime_2weeks ?? 0,
+    rtime_last_played: g.rtime_last_played ?? 0, // unix seconds; 0 = never / unknown
   }));
   return { game_count: data.response.game_count ?? games.length, games };
 }
