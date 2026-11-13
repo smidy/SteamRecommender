@@ -52,6 +52,9 @@ bun Tools/preflight.ts <steamid64|vanity>
 
 # Full recommendations (≈10 explained picks) — first run fills the catalog cache (~5 min, one-time):
 bun Tools/rank.ts <steamid64|vanity> --n 25 > shortlist.json     # --deck-only: Steam Deck Verified/Playable
+
+# Games like specific ones you own (names or appids), e.g. for a particular mood or setting:
+bun Tools/rank.ts <id> --seed "Vampire Survivors,Dave the Diver" --deck-only > shortlist.json
 bun Tools/explain.ts shortlist.json --n 10 > recs.json
 
 # Attach live prices + discounts (region-aware; --on-sale keeps only discounted picks):

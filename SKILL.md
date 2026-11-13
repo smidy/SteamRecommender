@@ -37,7 +37,7 @@ before the slow first-run cache fill (exit 2 key not visible · 3 private profil
 | 2 | **Fetch** | owned games + `playtime_forever` + `playtime_2weeks`; recent activity | `IPlayerService/GetOwnedGames`, `GetRecentlyPlayedGames` |
 | 3 | **Profile** | log(playtime)-weighted **taste-vector** over Steam Store genres + play-mode categories + recency + **archetype** | Steam Store `appdetails` |
 | 4 | **Retrieve** | broad quality pool, **not owned** (proxy → official-Steam-search fallback) | store-search proxy / Steam store search |
-| 5 | **Rank** | tag-overlap fit + quality − **MMR diversity**; drop owned + abandoned-franchise sequels; `--deck-only` keeps Deck Verified/Playable | local compute over cached metadata |
+| 5 | **Rank** | tag-overlap fit + quality − **MMR diversity**; drop owned + abandoned-franchise sequels; `--deck-only` keeps Deck Verified/Playable; `--seed "A,B"` ranks against named games only | local compute over cached metadata |
 | 6 | **Explain** | LLM writes per-game justification, **constrained to the step-5 list** (no invented games); each pick carries its Deck rating | `Tools/Inference.ts` (Claude CLI) |
 | 7 | **Enrich** | live price + `discount_percent`, region-aware (default `ie`); `--on-sale` keeps discounted picks | Steam Store `appdetails?filters=price_overview` |
 | 8 | **Output** | ranked recs with Deck · price · "why" + **Gaming DNA** archetype report | — |
@@ -46,7 +46,7 @@ before the slow first-run cache fill (exit 2 key not visible · 3 private profil
 
 | Workflow | Trigger | File |
 |----------|---------|------|
-| **Recommend** | "recommend games", "what should I play next", "analyze my library", default | `Workflows/Recommend.md` |
+| **Recommend** | "recommend games", "what should I play next", "analyze my library", "games like X and Y" (`--seed`), default | `Workflows/Recommend.md` |
 | **QuickRecs** | "just give me 5 games", "quick recs", "fast" — skips archetype + deep explanation | `Workflows/QuickRecs.md` |
 | **GamingDNA** | "what kind of gamer am I", "gaming personality", "Steam wrapped" — report only, no recs | `Workflows/GamingDNA.md` |
 
@@ -57,6 +57,7 @@ export STEAM_API_KEY=xxxxxxxxxxxxxxxx          # https://steamcommunity.com/dev/
 bun Tools/preflight.ts <steamid64|vanity>              # ~2s: key valid + library visible?
 # Full recommendations (first run fills the catalog cache, ~5 min one-time):
 bun Tools/rank.ts <steamid64|vanity> --n 25 > shortlist.json   # add --deck-only for Steam Deck picks
+bun Tools/rank.ts <steamid64|vanity> --seed "Vampire Survivors,Dave the Diver" --deck-only   # games like these two
 bun Tools/explain.ts shortlist.json --n 10 > recs.json
 bun Tools/enrich.ts recs.json --cc ie                  # live prices; --on-sale for discounts only
 # Gaming DNA report only:

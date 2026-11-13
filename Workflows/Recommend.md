@@ -22,7 +22,9 @@ Run from the repo root.
    ```
    Non-zero exit → **stop** and surface the message verbatim. 2 = key not visible to the process,
    3 = private profile, 4 = invalid key / network. Proceed only on exit 0.
-3. **Rank** (this also fetches the library, builds the profile, and retrieves candidates). Add `--deck-only`
+3. **Rank** (this also fetches the library, builds the profile, and retrieves candidates). When the user names
+   games to match ("games like X and Y", "something like what I play at the gym"), add `--seed "X,Y"`: owned-game
+   names or appids, and the taste comes from those games alone. Add `--deck-only`
    to keep only Steam Deck Verified/Playable games:
    ```bash
    STEAM_API_KEY=$KEY bun Tools/rank.ts <id> --n 25 2>/dev/null > shortlist.json

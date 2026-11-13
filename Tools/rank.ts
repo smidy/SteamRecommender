@@ -107,14 +107,48 @@ function printSummary(persona: string, ranked: Ranked[]) {
   });
 }
 
+/** Resolve --seed entries ("Vampire Survivors", "1868140") against the owned library. A number is taken as an
+ *  appid (owned or not); a name matches an owned game exactly (case-insensitive), else by substring, and among
+ *  several substring matches the most-played wins with a warning. Throws on a name that matches nothing. */
+export function resolveSeeds(specs: string[], owned: Game[], warn: (m: string) => void = () => {}): { appid: number; name: string; hours: number }[] {
+  const out: { appid: number; name: string; hours: number }[] = [];
+  for (const raw of specs.map((s) => s.trim()).filter(Boolean)) {
+    if (/^\d+$/.test(raw)) {
+      const g = owned.find((o) => o.appid === Number(raw));
+      out.push({ appid: Number(raw), name: g?.name ?? `app/${raw}`, hours: g ? Math.round(g.playtime_forever / 60) : 0 });
+      continue;
+    }
+    const q = raw.toLowerCase();
+    const exact = owned.filter((o) => o.name.toLowerCase() === q);
+    const partial = exact.length ? exact : owned.filter((o) => o.name.toLowerCase().includes(q)).sort((a, b) => b.playtime_forever - a.playtime_forever);
+    if (!partial.length) throw new Error(`--seed "${raw}" matches no game in this library (use its appid for a game you don't own)`);
+    if (partial.length > 1) warn(`--seed "${raw}" matched ${partial.length} games; using ${partial[0].name}`);
+    out.push({ appid: partial[0].appid, name: partial[0].name, hours: Math.round(partial[0].playtime_forever / 60) });
+  }
+  return out.filter((s, i) => out.findIndex((o) => o.appid === s.appid) === i); // a game named twice counts once
+}
+
+/** Taste vector from seed games only: each seed contributes equal mass spread over its player tags. */
+export function seedTaste(seeds: number[], tags: Record<number, Record<string, number>>): Record<string, number> {
+  const taste: Record<string, number> = {};
+  const usable = seeds.filter((id) => tags[id] && Object.keys(tags[id]).length);
+  for (const id of usable) {
+    const sum = Object.values(tags[id]).reduce((a, b) => a + b, 0) || 1;
+    for (const [t, w] of Object.entries(tags[id])) taste[t] = (taste[t] ?? 0) + w / sum / usable.length;
+  }
+  return Object.fromEntries(Object.entries(taste).sort((a, b) => b[1] - a[1]));
+}
+
 async function main() {
   const argv = process.argv.slice(2);
-  if (argv.includes("--help") || argv.length === 0) { console.log("Usage: STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--no-recency] [--summary]"); return; }
+  if (argv.includes("--help") || argv.length === 0) { console.log(`Usage: STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--no-recency] [--seed "Game A,Game B"] [--summary]
+  --seed  rank against these games only ("games like X and Y"): owned-game names or appids, comma-separated or repeated`); return; }
   const summary = argv.includes("--summary");
   const deckOnly = argv.includes("--deck-only");
   const nArg = argv.indexOf("--n"); const n = nArg !== -1 ? parseInt(argv[nArg + 1], 10) : DEFAULT_N;
   const pArg = argv.indexOf("--pages"); const pages = pArg !== -1 ? parseInt(argv[pArg + 1], 10) : 30;
-  const skip = new Set<number>(); argv.forEach((a, i) => { if (a === "--n" || a === "--pages") skip.add(i + 1); });
+  const seedSpecs = argv.flatMap((a, i) => (a === "--seed" && argv[i + 1] ? argv[i + 1].split(",") : []));
+  const skip = new Set<number>(); argv.forEach((a, i) => { if (a === "--n" || a === "--pages" || a === "--seed") skip.add(i + 1); });
   const input = argv.find((a, i) => !a.startsWith("--") && !skip.has(i));
   if (!input) { console.error(`${C.red}No SteamID/vanity.${C.reset}`); process.exit(2); }
 
@@ -129,6 +163,16 @@ async function main() {
   const { meta } = await getCatalog(playedAppids, { fetchMissing: true });
   const storeTags = await getStoreTags(playedAppids);
   const profile = buildProfile({ steamid, persona: profileMeta?.persona, games: owned.games, recent, catalog: meta, recency: !argv.includes("--no-recency"), storeTags });
+
+  // --seed: the taste comes from the named games alone, and they become the signature games Explain cites.
+  if (seedSpecs.length) {
+    const seeds = resolveSeeds(seedSpecs, owned.games, (m) => process.stderr.write(`${C.yellow}⚠ ${m}${C.reset}\n`));
+    const taste = seedTaste(seeds.map((s) => s.appid), await getStoreTags(seeds.map((s) => s.appid)));
+    if (!Object.keys(taste).length) throw new Error("no player tags found for the --seed games");
+    profile.taste_vector = taste;
+    profile.signature_games = seeds.map((s) => ({ name: s.name, hours: s.hours }));
+    process.stderr.write(`${C.cyan}seeded from:${C.reset} ${seeds.map((s) => s.name).join(", ")}\n`);
+  }
 
   process.stderr.write(`${C.cyan}retrieving candidates…${C.reset}\n`);
   const { candidates } = await retrieveCandidates(steamid, key, { pages });
