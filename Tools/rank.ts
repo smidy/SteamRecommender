@@ -10,7 +10,7 @@
  * abandoned series (ISC-15). Output is a ~25-game shortlist for the Explain stage to finalize.
  *
  * Usage:
- *   STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--summary]
+ *   STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--summary]
  *
  * @author PAI System — SteamRecommender
  * @version 0.1.0
@@ -46,7 +46,7 @@ function jaccard(a: string[], b: string[]): number {
 
 export interface Ranked extends Candidate { score: number; fit: number; quality: number; primary_tag: string; matched_tags: string[]; }
 
-export function rank(taste: Record<string, number>, candidates: Candidate[], owned: Game[], opts: { n?: number } = {}): Ranked[] {
+export function rank(taste: Record<string, number>, candidates: Candidate[], owned: Game[], opts: { n?: number; deckOnly?: boolean } = {}): Ranked[] {
   const n = opts.n ?? DEFAULT_N;
 
   // ISC-15: franchise keys of owned-but-abandoned games (own an entry, 0 recent playtime).
@@ -61,6 +61,7 @@ export function rank(taste: Record<string, number>, candidates: Candidate[], own
   const scored = candidates
     .filter((c) => !c.tags.some((t) => SOFTWARE.has(t)))
     .filter((c) => { for (const k of franchiseKeys(c.name)) if (ownedKeys.has(k)) return false; return true; }) // ISC-15
+    .filter((c) => !opts.deckOnly || c.steam_deck === 2 || c.steam_deck === 3) // F1: --deck-only keeps Playable+Verified
     .map((c) => {
       const matched = c.tags.filter((t) => taste[t]);
       const fit = matched.reduce((s, t) => s + taste[t], 0);
@@ -70,7 +71,11 @@ export function rank(taste: Record<string, number>, candidates: Candidate[], own
     });
 
   const maxFit = Math.max(1e-9, ...scored.map((s) => s.fit));
-  for (const s of scored) s.score = +(0.7 * (s.fit / maxFit) + 0.3 * s.quality).toFixed(4);
+  // F1: in --deck-only mode, nudge Verified (3) above Playable (2) at similar fit. Default mode unchanged.
+  for (const s of scored) {
+    const deckBoost = opts.deckOnly && s.steam_deck === 3 ? 0.05 : 0;
+    s.score = +(0.7 * (s.fit / maxFit) + 0.3 * s.quality + deckBoost).toFixed(4);
+  }
   scored.sort((a, b) => b.score - a.score);
 
   // ISC-7: MMR — greedily pick high score while penalizing tag-overlap with already-selected.
@@ -97,8 +102,9 @@ function printSummary(persona: string, ranked: Ranked[]) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  if (argv.includes("--help") || argv.length === 0) { console.log("Usage: STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--summary]"); return; }
+  if (argv.includes("--help") || argv.length === 0) { console.log("Usage: STEAM_API_KEY=xxxx bun rank.ts <steamid|vanity> [--n 25] [--pages 30] [--deck-only] [--summary]"); return; }
   const summary = argv.includes("--summary");
+  const deckOnly = argv.includes("--deck-only");
   const nArg = argv.indexOf("--n"); const n = nArg !== -1 ? parseInt(argv[nArg + 1], 10) : DEFAULT_N;
   const pArg = argv.indexOf("--pages"); const pages = pArg !== -1 ? parseInt(argv[pArg + 1], 10) : 30;
   const skip = new Set<number>(); argv.forEach((a, i) => { if (a === "--n" || a === "--pages") skip.add(i + 1); });
@@ -118,7 +124,7 @@ async function main() {
 
   process.stderr.write(`${C.cyan}retrieving candidates…${C.reset}\n`);
   const { candidates } = await retrieveCandidates(steamid, key, { pages });
-  const ranked = rank(profile.taste_vector, candidates, owned.games, { n });
+  const ranked = rank(profile.taste_vector, candidates, owned.games, { n, deckOnly });
   process.stderr.write(`${C.green}ranked ${ranked.length}${C.reset} from ${candidates.length} candidates (archetype: ${profile.archetype.primary})\n`);
 
   if (summary) printSummary(profileMeta?.persona ?? steamid, ranked);

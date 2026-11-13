@@ -26,7 +26,10 @@ score the few hundred the retrieval step hands you.
 
 ## The pipeline (every run)
 
-`RESOLVE id → FETCH history → PROFILE (taste-vector + archetype) → RETRIEVE candidates → RANK (fit + diversity) → EXPLAIN → OUTPUT`
+`PREFLIGHT → RESOLVE id → FETCH history → PROFILE (taste-vector + archetype) → RETRIEVE candidates → RANK (fit + diversity + Deck) → EXPLAIN → ENRICH (live price) → OUTPUT`
+
+`Tools/preflight.ts` checks the key and library visibility in ~2s first, so a bad key or private profile fails
+before the slow first-run cache fill (exit 2 key not visible · 3 private profile · 4 invalid key / network).
 
 | # | Phase | Does | Source |
 |---|-------|------|--------|
@@ -34,9 +37,10 @@ score the few hundred the retrieval step hands you.
 | 2 | **Fetch** | owned games + `playtime_forever` + `playtime_2weeks`; recent activity | `IPlayerService/GetOwnedGames`, `GetRecentlyPlayedGames` |
 | 3 | **Profile** | log(playtime)-weighted **taste-vector** over Steam Store genres + play-mode categories + recency + **archetype** | Steam Store `appdetails` |
 | 4 | **Retrieve** | broad quality pool, **not owned** (proxy → official-Steam-search fallback) | store-search proxy / Steam store search |
-| 5 | **Rank** | tag-overlap fit + quality − **MMR diversity**; drop owned + abandoned-franchise sequels | local compute over cached metadata |
-| 6 | **Explain** | LLM writes per-game justification, **constrained to the step-5 list** (no invented games) | `Tools/Inference.ts` (Claude CLI) |
-| 7 | **Output** | ranked recs with "why" + **Gaming DNA** archetype report | — |
+| 5 | **Rank** | tag-overlap fit + quality − **MMR diversity**; drop owned + abandoned-franchise sequels; `--deck-only` keeps Deck Verified/Playable | local compute over cached metadata |
+| 6 | **Explain** | LLM writes per-game justification, **constrained to the step-5 list** (no invented games); each pick carries its Deck rating | `Tools/Inference.ts` (Claude CLI) |
+| 7 | **Enrich** | live price + `discount_percent`, region-aware (default `ie`); `--on-sale` keeps discounted picks | Steam Store `appdetails?filters=price_overview` |
+| 8 | **Output** | ranked recs with Deck · price · "why" + **Gaming DNA** archetype report | — |
 
 ## Workflow Routing
 
@@ -50,9 +54,11 @@ score the few hundred the retrieval step hands you.
 
 ```bash
 export STEAM_API_KEY=xxxxxxxxxxxxxxxx          # https://steamcommunity.com/dev/apikey
+bun Tools/preflight.ts <steamid64|vanity>              # ~2s: key valid + library visible?
 # Full recommendations (first run fills the catalog cache, ~5 min one-time):
-bun Tools/rank.ts <steamid64|vanity> --n 25 > shortlist.json
-bun Tools/explain.ts shortlist.json --n 10
+bun Tools/rank.ts <steamid64|vanity> --n 25 > shortlist.json   # add --deck-only for Steam Deck picks
+bun Tools/explain.ts shortlist.json --n 10 > recs.json
+bun Tools/enrich.ts recs.json --cc ie                  # live prices; --on-sale for discounts only
 # Gaming DNA report only:
 bun Tools/build_profile.ts <steamid64|vanity> --summary
 ```
@@ -73,7 +79,8 @@ bun Tools/build_profile.ts <steamid64|vanity> --summary
 **Candidate proxy** — community Steam-store search by [Lorenzo Stanco](https://www.lorenzostanco.com/lab/steam/):
 `…/proxy.php?t=store_search&from=<offset>&min_reviews=<n>&sortby=sdbrating&order=desc&nonce=<token>` returns
 `{"error":false,"games":[…]}` with per-game `app_id`, `app_name`, `metascore`, `sdbrating`, `tags` (community
-tags!), `platforms`, `release_date`, `free`, `early_access`. The `nonce` is embedded in the store page and
+tags!), `platforms`, `release_date`, `free`, `early_access`, `steam_deck` (official Deck scale: 0 Unknown ·
+1 Unsupported · 2 Playable · 3 Verified). It has **no price field**, which is why `enrich.ts` exists. The `nonce` is embedded in the store page and
 auto-refreshed on failure. **No tag/text search** — it's a quality/date browse, so tag matching is client-side.
 If the proxy is unreachable, retrieve falls back to Steam's **official** store search (genres only).
 
@@ -133,17 +140,19 @@ Classified from playtime *shape* + recency + genre mix:
 
 ```
 SteamRecommender/
-  SKILL.md · ISA.md · README.md
+  SKILL.md · README.md
   Tools/
+    preflight.ts        # ~2s key + visibility check before any slow work
     fetch_library.ts    # Resolve + GetOwnedGames + Recent
     catalog_cache.ts    # Steam Store genres/categories, disk-cached + throttled
     build_profile.ts    # log-playtime taste-vector + archetype
     retrieve.ts         # candidate pool − owned (proxy + official-Steam fallback, nonce auto-refresh)
     rank.ts             # tag-overlap fit + MMR diversity + franchise dedup
     explain.ts          # LLM picks + justifies, shortlist-constrained (zero hallucination)
+    enrich.ts           # live price/discount per pick (region-aware, --on-sale)
     Inference.ts        # Claude-CLI wrapper (bundled; credit: Daniel Miessler / PAI — see README)
   Workflows/{Recommend,QuickRecs,GamingDNA}.md
   cache/catalog.json    # generated at runtime, git-ignored
 ```
-See `ISA.md` for the full ideal-state spec and per-criterion verification. Deferred enhancement: wire
+Deferred enhancement: wire
 `GetPlayerAchievements` so the Completionist archetype scores.

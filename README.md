@@ -47,9 +47,15 @@ official-Steam-search fallback kicks in if it's unavailable). No account login o
 Run from the repo root.
 
 ```bash
+# Check the key and that your library is visible (~2s) before anything slow:
+bun Tools/preflight.ts <steamid64|vanity>
+
 # Full recommendations (≈10 explained picks) — first run fills the catalog cache (~5 min, one-time):
-bun Tools/rank.ts <steamid64|vanity> --n 25 > shortlist.json
-bun Tools/explain.ts shortlist.json --n 10
+bun Tools/rank.ts <steamid64|vanity> --n 25 > shortlist.json     # --deck-only: Steam Deck Verified/Playable
+bun Tools/explain.ts shortlist.json --n 10 > recs.json
+
+# Attach live prices + discounts (region-aware; --on-sale keeps only discounted picks):
+bun Tools/enrich.ts recs.json --cc ie
 
 # Quick: 5 picks, fast (smaller pool, no report):
 bun Tools/rank.ts <id> --pages 15 --n 15 | bun Tools/explain.ts --n 5
@@ -79,7 +85,9 @@ fetch_library → build_profile → retrieve → rank → explain
 - **rank.ts** — scores candidates by taste-tag overlap + quality, applies **MMR** so the shortlist is diverse,
   and drops sequels of franchises you own but abandoned.
 - **explain.ts** — an LLM picks the final N and writes the "why", **resolved against the shortlist in code** so
-  it can never recommend a game that wasn't a candidate.
+  it can never recommend a game that wasn't a candidate. Each pick carries its Steam Deck rating.
+- **enrich.ts** — attaches live price + discount from the official Steam Store API (the candidate proxy has no
+  price field). **preflight.ts** — a ~2s key + visibility check that fails fast with a clear exit code.
 
 The owned-side taste vector is coarse (Steam's official genres only — community tags aren't available for
 arbitrary lookups since SteamSpy went behind Cloudflare), so the LLM Explain stage does the fine sub-genre

@@ -18,10 +18,13 @@
 import { inference } from "./Inference.ts";
 import fs from "fs";
 
+// F1: Steam Deck rating labels (proxy `steam_deck` enum, official scale).
+const DECK_LABEL: Record<number, string> = { 0: "Unknown", 1: "Unsupported", 2: "Playable", 3: "Verified" };
+
 interface Shortlist {
   persona?: string; archetype?: string; taste_top?: string[];
   signature_games?: { name: string; hours: number }[];
-  shortlist: { app_id: number; name: string; tags: string[]; sdbrating: number | null; primary_tag?: string }[];
+  shortlist: { app_id: number; name: string; tags: string[]; sdbrating: number | null; primary_tag?: string; steam_deck?: number | null }[];
 }
 
 const SYSTEM = `You are an expert Steam game recommender. You receive a player's archetype, taste tags, and their most-played ("signature") games, plus a CANDIDATE SHORTLIST of games they do NOT own (each with community tags). Choose the best N games for this player and write ONE punchy sentence per pick explaining the fit.
@@ -86,7 +89,7 @@ Return the ${n} best as JSON per the system rules.`;
   const recs = rawRecs
     .map((r: any) => {
       const e = byId.get(Number(r.app_id ?? r.appid ?? r.id)) ?? byName.get(String(r.name ?? r.title ?? r.game ?? "").toLowerCase());
-      return e ? { app_id: e.app_id, name: e.name, primary_tag: e.primary_tag, why: robustWhy(r) } : null;
+      return e ? { app_id: e.app_id, name: e.name, primary_tag: e.primary_tag, steam_deck: e.steam_deck ?? null, deck: e.steam_deck != null ? (DECK_LABEL[e.steam_deck] ?? "Unknown") : "Unknown", why: robustWhy(r) } : null;
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
   process.stderr.write(`explain: ${before} recs → ${recs.length} after shortlist-membership filter (ISC-9)\n`);

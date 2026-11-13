@@ -35,6 +35,7 @@ export interface Candidate {
   app_id: number; name: string; tags: string[];
   metascore: number | null; sdbrating: number | null; sdbrating_recent: number | null;
   platforms: string[]; release_date: string | null; free: boolean; early_access: boolean;
+  steam_deck: number | null; // proxy Deck rating, official scale: 0 Unknown · 1 Unsupported · 2 Playable · 3 Verified
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -61,6 +62,7 @@ function parseGame(g: any): Candidate {
     platforms: jparse<string[]>(g.platforms, []),
     release_date: g.release_date || null,
     free: g.free === "1", early_access: g.early_access === "1",
+    steam_deck: g.steam_deck != null && g.steam_deck !== "" ? Number(g.steam_deck) : null,
   };
 }
 
@@ -125,7 +127,7 @@ export async function retrieveCandidates(steamid: string, key: string, opts: { p
       if (!seen.has(s.app_id) && tags.length) {
         seen.add(s.app_id);
         // sdbrating defaulted to 75 — fallback seeds are Reviews_DESC-sorted (well-reviewed) and lack a SteamDB score.
-        pool.push({ app_id: s.app_id, name: s.name, tags, metascore: null, sdbrating: 75, sdbrating_recent: null, platforms: [], release_date: null, free: false, early_access: false });
+        pool.push({ app_id: s.app_id, name: s.name, tags, metascore: null, sdbrating: 75, sdbrating_recent: null, platforms: [], release_date: null, free: false, early_access: false, steam_deck: null });
       }
     }
   }
