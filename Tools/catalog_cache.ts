@@ -22,7 +22,7 @@
  *   --stdin          Read appids from stdin.
  *   --help           Show this help.
  *
- * Cache file: ~/.claude/skills/SteamRecommender/cache/catalog.json
+ * Cache file: <skill>/cache/catalog.json, or $STEAMREC_CACHE_DIR/catalog.json when that is set.
  *
  * @author PAI System — SteamRecommender
  * @version 0.1.0
@@ -34,7 +34,8 @@ import { fileURLToPath } from "url";
 import { resolveSteamId, getOwnedGames, getApiKey } from "./fetch_library.ts";
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CACHE_DIR = path.join(SKILL_DIR, "cache");
+// STEAMREC_CACHE_DIR moves the cache out of the skill dir (e.g. into a private data folder); default: <skill>/cache.
+const CACHE_DIR = process.env.STEAMREC_CACHE_DIR || path.join(SKILL_DIR, "cache");
 const CACHE_FILE = path.join(CACHE_DIR, "catalog.json");
 const STORE_API = "https://store.steampowered.com/api/appdetails";
 const THROTTLE_MS = 1700; // store appdetails ≈200 req/5min; 1.7s stays safely under (ISC-11)

@@ -77,7 +77,7 @@ fetch_library → build_profile → retrieve → rank → explain
 - **fetch_library.ts** — resolves your ID and pulls owned games + playtime + recency from `IPlayerService`
   (not `ISteamUser`, which has no playtime).
 - **catalog_cache.ts** — fetches genres/categories per game from the official Steam Store API, cached to
-  `cache/catalog.json`, throttled (~1.7s) to respect rate limits.
+  `cache/catalog.json` (or `$STEAMREC_CACHE_DIR/catalog.json`), throttled (~1.7s) to respect rate limits.
 - **build_profile.ts** — builds a `log(1+hours)`-weighted taste-vector (so one 2000-hour obsession doesn't
   drown the profile) and classifies your player archetype.
 - **retrieve.ts** — pulls a broad quality pool (sorted by SteamDB rating, which surfaces beloved non-Metacritic
