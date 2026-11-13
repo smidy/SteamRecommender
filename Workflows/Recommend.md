@@ -53,5 +53,7 @@ Run from the repo root.
 - Diverse — not ten of the same sub-genre (enforced by MMR in rank.ts).
 - Each rec shows its **Steam Deck rating** and **live price + discount**.
 - If `--on-sale` was requested and nothing is discounted, **say so honestly** — never pad with full-price picks.
+- A pick whose price reads **"Not for sale"** (`price.for_sale: false`) is a listing Steam no longer sells here,
+  often an original superseded by a remaster: say so, never present it as free.
 - Lead with the Gaming DNA report. Honest caveat: tag matching is coarse on the owned side; the LLM bridges
   sub-genre nuance.

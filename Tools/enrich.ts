@@ -28,6 +28,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface Price {
   is_free: boolean;
+  for_sale: boolean;               // false = listed but not purchasable here (delisted, superseded, region-locked)
   discount_percent: number;
   final: number | null;            // minor units (cents)
   initial: number | null;          // minor units (cents)
@@ -38,7 +39,8 @@ export interface Price {
 
 /** Live price for one app from the official Store appdetails API. null = unknown (delisted/region-locked/error). */
 async function fetchPrice(appid: number, cc: string): Promise<Price | null> {
-  const url = `${STORE_API}?appids=${appid}&cc=${cc}&filters=price_overview`;
+  // `basic` carries is_free; price_overview alone cannot tell a free game from one that is not for sale.
+  const url = `${STORE_API}?appids=${appid}&cc=${cc}&filters=basic,price_overview`;
   let res = await fetch(url, { headers: { Accept: "application/json" } });
   if (res.status === 429) { await sleep(15000); res = await fetch(url, { headers: { Accept: "application/json" } }); }
   if (!res.ok) return null;
@@ -46,10 +48,15 @@ async function fetchPrice(appid: number, cc: string): Promise<Price | null> {
   const node = j?.[String(appid)];
   if (!node || !node.success) return null;
   const po = node.data?.price_overview;
-  // success + no price_overview ⇒ free-to-play (or no price in this region).
-  if (!po) return { is_free: true, discount_percent: 0, final: null, initial: null, final_formatted: "Free", initial_formatted: null, currency: null };
+  if (!po) {
+    // No price: free only when Steam says so. Otherwise the listing is not purchasable here (e.g. an original
+    // superseded by a remaster). Before this check, those were mislabelled "Free".
+    const free = node.data?.is_free === true;
+    return { is_free: free, for_sale: free, discount_percent: 0, final: null, initial: null, final_formatted: free ? "Free" : "Not for sale", initial_formatted: null, currency: null };
+  }
   return {
     is_free: false,
+    for_sale: true,
     discount_percent: po.discount_percent ?? 0,
     final: po.final ?? null,
     initial: po.initial ?? null,
@@ -61,6 +68,7 @@ async function fetchPrice(appid: number, cc: string): Promise<Price | null> {
 
 async function main() {
   const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) { console.log("Usage: bun enrich.ts [recs.json] [--cc ie] [--on-sale]   (reads stdin when no file is given)"); return; }
   const ccIdx = argv.indexOf("--cc");
   const cc = ccIdx !== -1 ? (argv[ccIdx + 1] ?? "ie") : "ie";
   const onSale = argv.includes("--on-sale");

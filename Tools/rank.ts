@@ -19,7 +19,7 @@
 import { resolveSteamId, getOwnedGames, getRecentlyPlayed, getPlayerSummary, getApiKey, type Game } from "./fetch_library.ts";
 import { getCatalog } from "./catalog_cache.ts";
 import { buildProfile } from "./build_profile.ts";
-import { getStoreTags } from "./store_tags.ts";
+import { getStoreTags, getDeckCompat } from "./store_tags.ts";
 import { retrieveCandidates, type Candidate } from "./retrieve.ts";
 
 const C = { reset: "\x1b[0m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", bold: "\x1b[1m", red: "\x1b[31m", yellow: "\x1b[33m" };
@@ -132,6 +132,9 @@ async function main() {
 
   process.stderr.write(`${C.cyan}retrieving candidates…${C.reset}\n`);
   const { candidates } = await retrieveCandidates(steamid, key, { pages });
+  // Fill Deck ratings the proxy left empty from the official store API, before --deck-only filters on them.
+  const needDeck = candidates.filter((c) => c.steam_deck == null).map((c) => c.app_id);
+  if (needDeck.length) { const deck = await getDeckCompat(needDeck); for (const c of candidates) if (c.steam_deck == null && deck[c.app_id] != null) c.steam_deck = deck[c.app_id]; }
   const ranked = rank(profile.taste_vector, candidates, owned.games, { n, deckOnly });
   process.stderr.write(`${C.green}ranked ${ranked.length}${C.reset} from ${candidates.length} candidates (archetype: ${profile.archetype.primary})\n`);
 

@@ -42,8 +42,8 @@ async function loadTagNames(cache: Cache): Promise<void> {
   for (const t of (await res.json())?.response?.tags ?? []) cache.tagnames[String(t.tagid)] = t.name;
 }
 
-async function fetchBatch(appids: number[]): Promise<any[]> {
-  const input = { ids: appids.map((appid) => ({ appid })), context: { language: "english", country_code: "US" }, data_request: { include_tag_count: TAGS_PER_GAME } };
+async function fetchBatch(appids: number[], dataRequest: Record<string, unknown> = { include_tag_count: TAGS_PER_GAME }): Promise<any[]> {
+  const input = { ids: appids.map((appid) => ({ appid })), context: { language: "english", country_code: "US" }, data_request: dataRequest };
   const url = `${ITEMS_API}?input_json=${encodeURIComponent(JSON.stringify(input))}`;
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(url);
@@ -79,6 +79,24 @@ export async function getStoreTags(appids: number[], opts: { log?: boolean } = {
     }
   }
   for (const id of appids) { const e = cache.apps[String(id)]; if (e && Object.keys(e.tags).length) out[id] = e.tags; }
+  return out;
+}
+
+/** Steam Deck compatibility per appid from the same official API (`platforms.steam_deck_compat_category`,
+ *  0 Unknown · 1 Unsupported · 2 Playable · 3 Verified). Not cached: ratings change, and a pool is a few calls.
+ *  The candidate proxy stopped returning its `steam_deck` field (all null, seen 2026-11-13), so this is the
+ *  source of truth. Apps missing from the response are absent from the result. */
+export async function getDeckCompat(appids: number[]): Promise<Record<number, number>> {
+  const out: Record<number, number> = {};
+  try {
+    for (let i = 0; i < appids.length; i += BATCH) {
+      for (const item of await fetchBatch(appids.slice(i, i + BATCH), { include_platforms: true })) {
+        const v = item?.platforms?.steam_deck_compat_category;
+        if (item?.appid && typeof v === "number") out[item.appid] = v;
+      }
+      if (i + BATCH < appids.length) await sleep(BATCH_DELAY_MS);
+    }
+  } catch { /* network failure → callers keep whatever Deck value they had */ }
   return out;
 }
 

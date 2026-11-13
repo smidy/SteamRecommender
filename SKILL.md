@@ -80,7 +80,9 @@ bun Tools/build_profile.ts <steamid64|vanity> --summary
 `…/proxy.php?t=store_search&from=<offset>&min_reviews=<n>&sortby=sdbrating&order=desc&nonce=<token>` returns
 `{"error":false,"games":[…]}` with per-game `app_id`, `app_name`, `metascore`, `sdbrating`, `tags` (community
 tags!), `platforms`, `release_date`, `free`, `early_access`, `steam_deck` (official Deck scale: 0 Unknown ·
-1 Unsupported · 2 Playable · 3 Verified). It has **no price field**, which is why `enrich.ts` exists. The `nonce` is embedded in the store page and
+1 Unsupported · 2 Playable · 3 Verified). It has **no price field**, which is why `enrich.ts` exists. Its
+`steam_deck` field now comes back empty, so rank.ts fills Deck ratings from the official
+`IStoreBrowseService/GetItems` (`platforms.steam_deck_compat_category`) before `--deck-only` filters. The `nonce` is embedded in the store page and
 auto-refreshed on failure. **No tag/text search** — it's a quality/date browse, so tag matching is client-side.
 If the proxy is unreachable, retrieve falls back to Steam's **official** store search (genres only).
 
