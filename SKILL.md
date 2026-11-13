@@ -87,12 +87,15 @@ If the proxy is unreachable, retrieve falls back to Steam's **official** store s
 ## Ranking model
 
 ```
-score(g) = w_fit · taste-tag overlap(taste_vec, g.tags)  +  w_quality · (sdbrating|metascore)
+score(g) = w_fit · Σ taste[t] · idf(t) over matched tags  +  w_quality · (sdbrating|metascore)
          − w_div · max_tag_jaccard(g, already_selected)   # MMR: penalize similarity to picks already chosen
-hard_filters: not owned · not abandoned-franchise sequel · has tags + a rating
+hard_filters: not owned · not DLC/pass/soundtrack · not abandoned-franchise sequel · has tags + a rating
 ```
-Taste-vector weights raw playtime by **`log(1+hours)`** so one 2000-hour obsession does not drown the profile.
-The owned-side vector is coarse (Steam genres); the LLM Explain stage does the fine sub-genre semantic match.
+The taste vector is built over Steam **player tags** for owned games (`store_tags.ts`, official
+`IStoreBrowseService/GetItems`), the same vocabulary as the candidates. Each game weighs **`log(1+hours)`**
+× a **recency decay** on its last-played date (12-month half-life, floor 0.25; `--no-recency` disables), and
+`idf = log(N/df)` over the candidate pool keeps near-universal tags (Singleplayer, Action) from dominating.
+The archetype still uses Steam genres; if the tag API is down the vector falls back to genres.
 
 ## Player archetypes (Gaming DNA)
 
@@ -145,6 +148,7 @@ SteamRecommender/
     preflight.ts        # ~2s key + visibility check before any slow work
     fetch_library.ts    # Resolve + GetOwnedGames + Recent
     catalog_cache.ts    # Steam Store genres/categories, disk-cached + throttled
+    store_tags.ts       # Steam player tags per game (official API, batched + cached)
     build_profile.ts    # log-playtime taste-vector + archetype
     retrieve.ts         # candidate pool − owned (proxy + official-Steam fallback, nonce auto-refresh)
     rank.ts             # tag-overlap fit + MMR diversity + franchise dedup

@@ -78,20 +78,24 @@ fetch_library → build_profile → retrieve → rank → explain
   (not `ISteamUser`, which has no playtime).
 - **catalog_cache.ts** — fetches genres/categories per game from the official Steam Store API, cached to
   `cache/catalog.json` (or `$STEAMREC_CACHE_DIR/catalog.json`), throttled (~1.7s) to respect rate limits.
-- **build_profile.ts** — builds a `log(1+hours)`-weighted taste-vector (so one 2000-hour obsession doesn't
-  drown the profile) and classifies your player archetype.
+- **store_tags.ts** — fetches Steam's player-applied tags ("Colony Sim", "Roguelite") for your games from the
+  official store API (batched, cached), so your profile speaks the same tag vocabulary as the candidates.
+- **build_profile.ts** — builds a taste-vector over those tags, each game weighted by `log(1+hours)` (so one
+  2000-hour obsession doesn't drown the profile) times a decay on when you last played it (12-month half-life,
+  floor 0.25; `--no-recency` for the all-time view), and classifies your player archetype.
 - **retrieve.ts** — pulls a broad quality pool (sorted by SteamDB rating, which surfaces beloved non-Metacritic
   indies), subtracts games you own. Falls back to official Steam search if the proxy is down.
-- **rank.ts** — scores candidates by taste-tag overlap + quality, applies **MMR** so the shortlist is diverse,
-  and drops sequels of franchises you own but abandoned.
+- **rank.ts** — scores candidates by TF-IDF taste-tag overlap (tags nearly every game has, like Singleplayer,
+  count for little) + quality, applies **MMR** so the shortlist is diverse, and drops DLC and sequels of
+  franchises you own but abandoned.
 - **explain.ts** — an LLM picks the final N and writes the "why", **resolved against the shortlist in code** so
   it can never recommend a game that wasn't a candidate. Each pick carries its Steam Deck rating.
 - **enrich.ts** — attaches live price + discount from the official Steam Store API (the candidate proxy has no
   price field). **preflight.ts** — a ~2s key + visibility check that fails fast with a clear exit code.
 
-The owned-side taste vector is coarse (Steam's official genres only — community tags aren't available for
-arbitrary lookups since SteamSpy went behind Cloudflare), so the LLM Explain stage does the fine sub-genre
-matching ("this is a colony-sim like your RimWorld").
+The Gaming DNA archetype still uses Steam's official genres (stable labels); ranking uses player tags. If the
+store tag API is unreachable, the profile falls back to genres and the LLM Explain stage does the fine
+sub-genre matching ("this is a colony-sim like your RimWorld").
 
 ## Configuration
 

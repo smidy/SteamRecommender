@@ -19,6 +19,7 @@
 import { resolveSteamId, getOwnedGames, getRecentlyPlayed, getPlayerSummary, getApiKey, type Game } from "./fetch_library.ts";
 import { getCatalog } from "./catalog_cache.ts";
 import { buildProfile } from "./build_profile.ts";
+import { getStoreTags } from "./store_tags.ts";
 import { retrieveCandidates, type Candidate } from "./retrieve.ts";
 
 const C = { reset: "\x1b[0m", dim: "\x1b[2m", green: "\x1b[32m", cyan: "\x1b[36m", bold: "\x1b[1m", red: "\x1b[31m", yellow: "\x1b[33m" };
@@ -27,6 +28,8 @@ const DEFAULT_N = 25;
 
 // Tags that mark software/tools, not games — exclude from recommendations.
 const SOFTWARE = new Set(["Animation & Modeling", "Audio Production", "Design & Illustration", "Photo Editing", "Software Training", "Utilities", "Video Production", "Web Publishing", "Game Development"]);
+// Add-on store items the proxy returns alongside games.
+const ADDON = /\b(expansion pass|season pass|soundtrack|ost|dlc|artbook|supporter pack)\b/i;
 // Tokens that never indicate a franchise (articles, edition words, numerals).
 const STOP = new Set(["the", "of", "and", "a", "an", "edition", "game", "year", "goty", "deluxe", "definitive", "remastered", "remaster", "complete", "collection", "bundle", "hd", "vr", "ii", "iii", "iv", "vi", "vii", "viii", "ix", "x", "online", "plus", "anniversary", "enhanced", "legacy"]);
 // Long-but-generic words that shouldn't be franchise keys on their own.
@@ -56,15 +59,19 @@ export function rank(taste: Record<string, number>, candidates: Candidate[], own
   // Pool tag document-frequency → a game's rarest tag is its most characteristic ("primary") tag.
   const df: Record<string, number> = {};
   for (const c of candidates) for (const t of c.tags) df[t] = (df[t] ?? 0) + 1;
+  const idf = (t: string) => Math.log((candidates.length + 1) / ((df[t] ?? 0) + 1));
 
   // Filter: drop software + franchise-dupes; then score.
   const scored = candidates
     .filter((c) => !c.tags.some((t) => SOFTWARE.has(t)))
+    .filter((c) => !ADDON.test(c.name)) // DLC/passes/soundtracks are not standalone games
     .filter((c) => { for (const k of franchiseKeys(c.name)) if (ownedKeys.has(k)) return false; return true; }) // ISC-15
     .filter((c) => !opts.deckOnly || c.steam_deck === 2 || c.steam_deck === 3) // F1: --deck-only keeps Playable+Verified
     .map((c) => {
-      const matched = c.tags.filter((t) => taste[t]);
-      const fit = matched.reduce((s, t) => s + taste[t], 0);
+      // TF-IDF fit: a tag nearly every candidate carries (Singleplayer, Action, Indie) says little about this
+      // game, so each matched tag's taste weight is scaled by log(N / df) over the candidate pool.
+      const matched = c.tags.filter((t) => taste[t]).sort((a, b) => taste[b] * idf(b) - taste[a] * idf(a));
+      const fit = matched.reduce((s, t) => s + taste[t] * idf(t), 0);
       const quality = (c.sdbrating ?? c.metascore ?? 70) / 100;
       const primary = [...c.tags].sort((a, b) => (df[a] - df[b]) || (b.length - a.length))[0] ?? "Game"; // rarest = most characteristic
       return { ...c, fit, quality, primary_tag: primary, matched_tags: matched, score: 0 };
@@ -120,7 +127,8 @@ async function main() {
 
   const playedAppids = owned.games.filter((g) => g.playtime_forever > 0).map((g) => g.appid);
   const { meta } = await getCatalog(playedAppids, { fetchMissing: true });
-  const profile = buildProfile({ steamid, persona: profileMeta?.persona, games: owned.games, recent, catalog: meta, recency: !argv.includes("--no-recency") });
+  const storeTags = await getStoreTags(playedAppids);
+  const profile = buildProfile({ steamid, persona: profileMeta?.persona, games: owned.games, recent, catalog: meta, recency: !argv.includes("--no-recency"), storeTags });
 
   process.stderr.write(`${C.cyan}retrieving candidates…${C.reset}\n`);
   const { candidates } = await retrieveCandidates(steamid, key, { pages });

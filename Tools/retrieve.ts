@@ -23,6 +23,7 @@
 
 import { resolveSteamId, getOwnedGames, getApiKey } from "./fetch_library.ts";
 import { getCatalog } from "./catalog_cache.ts";
+import { getStoreTags } from "./store_tags.ts";
 
 const PROXY = "https://www.lorenzostanco.com/lab/steam/proxy.php";
 const STORE_PAGE = "https://www.lorenzostanco.com/lab/steam/store/";
@@ -122,8 +123,10 @@ export async function retrieveCandidates(steamid: string, key: string, opts: { p
     degraded = true;
     const seeds = await retrieveViaSteamSearch(opts.fallbackCount ?? 150);
     const { meta } = await getCatalog(seeds.map((s) => s.app_id), { fetchMissing: true });
+    const store = await getStoreTags(seeds.map((s) => s.app_id)); // player tags, same vocabulary as the proxy
     for (const s of seeds) {
-      const c = meta[s.app_id]; const tags = c ? Object.keys(c.tags) : [];
+      const c = meta[s.app_id];
+      const tags = store[s.app_id] ? Object.keys(store[s.app_id]) : c ? Object.keys(c.tags) : [];
       if (!seen.has(s.app_id) && tags.length) {
         seen.add(s.app_id);
         // sdbrating defaulted to 75 — fallback seeds are Reviews_DESC-sorted (well-reviewed) and lack a SteamDB score.

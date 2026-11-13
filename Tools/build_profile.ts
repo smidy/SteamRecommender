@@ -20,6 +20,7 @@
 
 import { resolveSteamId, getOwnedGames, getRecentlyPlayed, getPlayerSummary, getApiKey, type Game } from "./fetch_library.ts";
 import { getCatalog, type CatalogEntry } from "./catalog_cache.ts";
+import { getStoreTags } from "./store_tags.ts";
 
 const C = { reset: "\x1b[0m", dim: "\x1b[2m", red: "\x1b[31m", green: "\x1b[32m", yellow: "\x1b[33m", cyan: "\x1b[36m", bold: "\x1b[1m" };
 
@@ -53,7 +54,7 @@ interface Profile {
   visibility?: string;
   stats: {
     library_count: number; played_count: number; tagged_count: number; catalog_coverage: number;
-    total_hours: number; top1_share: number; top5_share: number; avg_played_hours: number; median_played_hours: number;
+    store_tag_coverage: number; total_hours: number; top1_share: number; top5_share: number; avg_played_hours: number; median_played_hours: number;
   };
   recency: boolean; // taste + signature games weighted by last-played decay
   taste_vector: Record<string, number>;
@@ -72,6 +73,9 @@ const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 export function buildProfile(args: {
   steamid: string; persona?: string; visibility?: string;
   games: Game[]; recent: Game[]; catalog: Record<number, CatalogEntry>; recency?: boolean;
+  /** Player tags per appid (store_tags.ts). When present they drive the taste vector, which is what rank.ts
+   *  matches against the candidates' player tags; genres still drive the archetype. */
+  storeTags?: Record<number, Record<string, number>>;
 }): Profile {
   const { steamid, persona, visibility, games, recent, catalog } = args;
   const recency = args.recency ?? true;
@@ -85,16 +89,26 @@ export function buildProfile(args: {
   });
 
   // Taste vector — each game contributes `gameWeight` (log hours × recency decay) total mass, spread across its tags.
+  // `taste` (genres + play-mode categories) feeds the archetype clusters; `rich` (player tags where Steam has
+  // them, genres otherwise) becomes the taste vector that ranking uses.
   const taste: Record<string, number> = {};
-  for (const g of taggable) {
-    const tags = catalog[g.appid].tags;
+  const rich: Record<string, number> = {};
+  const storeTags = args.storeTags ?? {};
+  const accumulate = (into: Record<string, number>, tags: Record<string, number>, w: number) => {
     const sum = Object.values(tags).reduce((a, b) => a + b, 0) || 1;
+    for (const [tag, v] of Object.entries(tags)) into[tag] = (into[tag] ?? 0) + w * (v / sum);
+  };
+  let richCount = 0;
+  for (const g of taggable) {
     const w = gameWeight(g);
-    for (const [tag, v] of Object.entries(tags)) taste[tag] = (taste[tag] ?? 0) + w * (v / sum);
+    accumulate(taste, catalog[g.appid].tags, w);
+    const st = storeTags[g.appid];
+    if (st && Object.keys(st).length) richCount++;
+    accumulate(rich, st && Object.keys(st).length ? st : catalog[g.appid].tags, w);
   }
-  const tasteTotal = Object.values(taste).reduce((a, b) => a + b, 0) || 1;
+  const tasteTotal = Object.values(rich).reduce((a, b) => a + b, 0) || 1;
   const tasteNorm: Record<string, number> = {};
-  for (const [t, w] of Object.entries(taste).sort((a, b) => b[1] - a[1]).slice(0, 25)) tasteNorm[t] = +(w / tasteTotal).toFixed(4);
+  for (const [t, w] of Object.entries(rich).sort((a, b) => b[1] - a[1]).slice(0, 60)) tasteNorm[t] = +(w / tasteTotal).toFixed(4);
 
   // Recent taste (last 2 weeks)
   const recentTagSet = new Set<string>();
@@ -133,6 +147,7 @@ export function buildProfile(args: {
     stats: {
       library_count: games.length, played_count: played.length, tagged_count: taggable.length,
       catalog_coverage: played.length ? +(taggable.length / played.length).toFixed(3) : 0,
+      store_tag_coverage: taggable.length ? +(richCount / taggable.length).toFixed(3) : 0,
       total_hours: Math.round(totalHours), top1_share: +conc.toFixed(3), top5_share: +(totalHours ? top5 / totalHours : 0).toFixed(3),
       avg_played_hours: +avgPlayed.toFixed(1), median_played_hours: +median.toFixed(1),
     },
@@ -150,7 +165,7 @@ function printSummary(p: Profile) {
   console.log(`\n${C.cyan}Archetype:${C.reset} ${C.bold}${p.archetype.primary}${C.reset}  ${C.dim}— ${p.archetype.ranked[0].why}${C.reset}`);
   console.log(`${C.dim}runner-up: ${p.archetype.ranked[1].name} (${p.archetype.ranked[1].score})${C.reset}`);
   console.log(`\n${C.cyan}Stats:${C.reset} ${p.stats.played_count}/${p.stats.library_count} games played · ${p.stats.total_hours}h total · avg ${p.stats.avg_played_hours}h · top title ${(p.stats.top1_share * 100).toFixed(0)}% of hours`);
-  console.log(`${C.dim}catalog coverage: ${(p.stats.catalog_coverage * 100).toFixed(0)}% of played games tagged${C.reset}`);
+  console.log(`${C.dim}catalog coverage: ${(p.stats.catalog_coverage * 100).toFixed(0)}% of played games tagged · player tags on ${(p.stats.store_tag_coverage * 100).toFixed(0)}%${C.reset}`);
   console.log(`\n${C.cyan}Taste signature:${C.reset} ${topTags.join(" · ")}`);
   if (p.recent_tags.length) console.log(`${C.cyan}Lately into:${C.reset} ${p.recent_tags.join(", ")}`);
   console.log(`\n${C.cyan}Signature games:${C.reset} ${C.dim}${p.recency ? "(hours × recency of last play)" : "(all-time hours)"}${C.reset}`);
@@ -177,8 +192,9 @@ async function main() {
   process.stderr.write(`${C.dim}building profile: ${playedAppids.length} played games → catalog…${C.reset}\n`);
   const { meta, stats } = await getCatalog(playedAppids, { fetchMissing: true, log: true });
   process.stderr.write(`${C.dim}catalog: hits=${stats.hits} fetched=${stats.fetched} misses=${stats.misses}${C.reset}\n`);
+  const storeTags = await getStoreTags(playedAppids, { log: true });
 
-  const profile = buildProfile({ steamid, persona: profileMeta?.persona, visibility: profileMeta?.visibility, games: owned.games, recent, catalog: meta, recency: !argv.includes("--no-recency") });
+  const profile = buildProfile({ steamid, persona: profileMeta?.persona, visibility: profileMeta?.visibility, games: owned.games, recent, catalog: meta, recency: !argv.includes("--no-recency"), storeTags });
   if (summary) printSummary(profile);
   else console.log(JSON.stringify(profile, null, 2));
 }
